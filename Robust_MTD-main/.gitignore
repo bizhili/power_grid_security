@@ -1,0 +1,7 @@
+__pycache__/
+*.pdf
+*.npy
+*.pptx
+!dc_mtd_result/x_mtd.npy
+!dc_mtd_result/x.npy
+*DS_Store
