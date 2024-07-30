@@ -7,7 +7,7 @@ opt.model= "DC";
 mpc = loadcase('case14');
 busNum= length(mpc.bus);
 branchNum= length(mpc.branch);
-timeSteps= 100;
+timeSteps= 10;
 baseActiveLoad= mpc.bus(:, PD);
 needLoad= (baseActiveLoad~=0);
 loadStd= 2;
@@ -30,11 +30,12 @@ for i = 1:timeSteps
     stateBusVoltageAngle(i, :)= results.bus(2:end, VA);
 end
 plot(measureBranchActivePower);
-[Bbus, Bf, Pbusinj, Pfinj] = makeBdc(mpc);%Bf*\theta+Pfinj
-Bf= full(Bf)*pi/180*1e2;
-Bf= Bf(:, 2: end);
+[Bbus, BfO, Pbusinj, Pfinj] = makeBdc(mpc);%Bf*\theta+Pfinj
+BfO= full(BfO);
+Bf= BfO*pi/180*100;
+S = svd(Bf);
 sumBias= 0;
-for i = 1:timeSteps
+for i = 1:timeSteps % verify 
     tempAngle= stateBusVoltageAngle(i,:).';
     tempbranchActive= Bf*tempAngle;% why *1e2 ?
     tempBias=measureBranchActivePower(i, :)-tempbranchActive.';

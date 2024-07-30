@@ -11,16 +11,17 @@ std= 0.1;
 
 noisedbranchActive= measurementNoise(measureBranchActivePower, std);
 
-%attackedBranchActive= stealtyAttack(noisedbranchActive, Bf, 0.2);
-attackedBranchActive= randomAttack(noisedbranchActive, std*7);
+attackedBranchActive= stealtyAttack(noisedbranchActive, Bf, 0.2);
+%attackedBranchActive= randomAttack(noisedbranchActive, std*7);
 cov= std^2*eye(length(measureBranchActivePower(1, :)));
-stdMea= sqrt(diag(cov));
+stdMea= sqrt(diag(cov));%
 estimateBusVoltageAngle= stateEstimator(attackedBranchActive, Bf, cov);
 
+%chiSquare test
 residuals= (Bf*estimateBusVoltageAngle.').'-attackedBranchActive;
 stdResidual= residuals./stdMea.';
 chiSquare= sum((stdResidual.^2).');% degree of flexiable: 19;
-testPass= chiSquare<25;
+testPass= chiSquare<25;%chisquare table: 25
 
 100-sum(testPass)
 
