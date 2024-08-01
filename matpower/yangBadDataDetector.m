@@ -9,15 +9,14 @@ stateBusVoltageAngleBase= stateBusVoltageAngle;
 load("yangData1stRound.mat", 'noisedbranchActive', 'stateBusVoltageAngle', 'BfO')
 
 %H matrix must be a singular matrix
-
-Bf= BfO;
-rankBf= rank(full(Bf));
+Bf= full(BfO);
+rankBf= rank(Bf);
 
 std= 0.01;
 
-cov= std^2*eye(length(noisedbranchActive(1, :)));
-stdMea= sqrt(diag(cov));%
-estimateBusVoltageAngle= stateEstimator(noisedbranchActive, Bf, cov);
+covT= std^2*eye(length(noisedbranchActive(1, :)));
+stdMea= sqrt(diag(covT));%
+estimateBusVoltageAngle= stateEstimator(noisedbranchActive, Bf, covT);
 estimateBusVoltageAngle= estimateBusVoltageAngle- estimateBusVoltageAngle(:, 1);
 %chiSquare test
 residuals= (Bf*estimateBusVoltageAngle.').'-noisedbranchActive;
@@ -31,9 +30,12 @@ stateBusVoltageAngleModify= stateBusVoltageAngle-stateBusVoltageAngle(:, 1);
 rest= stateBusVoltageAngleModify-estimateBusVoltageAngle;
 restMean= mean(rest);
 error= (estimateBusVoltageAngle+restMean)-stateBusVoltageAngleModify(:, 1:end);
-plot(noisedbranchActiveBase, 'DisplayName',"State estimate without reference bus", color="black");
+plot(error, 'DisplayName',"State estimate without reference bus", color="black");
+error2= (noisedbranchActive-noisedbranchActiveBase);
 
+covT= corrcoef(error2.');
+covTMax= max(covT-eye(480));
 hold on;
-plot(noisedbranchActive, 'DisplayName', "Yang's estimation", color="blue");
+%plot(error2, 'DisplayName', "Yang's estimation", color="blue");
 xlabel("Time point")
 ylabel("voltage angle")
