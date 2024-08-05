@@ -30,11 +30,25 @@ stateBusVoltageAngleModify= stateBusVoltageAngle-stateBusVoltageAngle(:, 1);
 rest= stateBusVoltageAngleModify-estimateBusVoltageAngle;
 restMean= mean(rest);
 error= (estimateBusVoltageAngle+restMean)-stateBusVoltageAngleModify(:, 1:end);
-plot(error, 'DisplayName',"State estimate without reference bus", color="black");
-error2= (noisedbranchActive-noisedbranchActiveBase);
+figure(1);
+% noisedbranchActive= noisedbranchActive2nd;
+noisedbranchActiveNorm= sqrt(sum(noisedbranchActive.*noisedbranchActive, 2));
 
-covT= corrcoef(error2.');
-covTMax= max(covT-eye(480));
+% noisedbranchActive= noisedbranchActive./noisedbranchActiveNorm;
+noisedbranchActiveNormMean= mean(noisedbranchActive, 1);
+% noisedbranchActive= noisedbranchActive-noisedbranchActiveNormMean;
+
+plot(stateBusVoltageAngle, 'DisplayName',"State estimate without reference bus", color="black");
+% error2= (noisedbranchActive-noisedbranchActiveBase);
+noisedbranchActiveMean= movmean(noisedbranchActive, 500);
+figure(2);
+plot(noisedbranchActive);
+hold on;
+plot(noisedbranchActiveBase);
+figure(3);
+corT= corrcoef(noisedbranchActive.');
+imagesc(corT);
+% corT2= corrcoef(error2.');
 hold on;
 %plot(error2, 'DisplayName', "Yang's estimation", color="blue");
 xlabel("Time point")
