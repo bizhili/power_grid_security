@@ -4,7 +4,7 @@ define_constants;
 % 0: print none, 1: print little
 opt = mpoption('VERBOSE',0, 'OUT_ALL',0);
 opt.model= "DC";
-mpc = loadcase('case14');
+mpc = loadcase('case14.m');
 busNum= length(mpc.bus);
 branchNum= length(mpc.branch);
 timeSteps= 10;

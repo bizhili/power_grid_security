@@ -7,7 +7,7 @@ branchNum= 20;
 T= 1000;
 %H matrix must be a singular matrix
 Bf= full(BfO);
-Bf(1, 1)= 16.4;
+%Bf(1, 1)= 16.4;
 rankBf= rank(Bf);
 [s, v, d]= svd(Bf);
 svdT= svd(Bf);
@@ -28,7 +28,7 @@ for i =1: T
         labels(i)= 1;
     end
     powerFL= Bf*sumAngle;
-    powerFLs(i, :)= powerFL/norm(powerFL);
+    powerFLs(i, :)= powerFL;
     angles(i, :)= sumAngle;
 end
 covT= eye(20);
@@ -41,3 +41,11 @@ plot(powerFLs);
 corT= corrcoef(estAngles);
 figure(3);
 imagesc(corT);
+
+% Bf=Bf.*rand(20,  1)*10;
+% invBf= pinv(Bf);
+% invRes= invBf*(powerFLs.');
+% estBf= Bf*(invRes);
+% error= powerFLs- estBf.';
+% plot(error);
+
