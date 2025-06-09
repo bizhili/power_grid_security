@@ -34,7 +34,7 @@ def plot_degree_distribution(G: nx.graph, Gpre= None, fixMin= 0, fixMax= 30, ax=
     degrees = [d for n, d in G.degree()]
     refMin= min(degrees)
     refMax= max(degrees)+1
-    fontZise= 25
+    fontZise= 44
     if Gpre is not None:
         degreesRef= [d for n, d in Gpre.degree()]
         refMin= min(refMin, min(degreesRef))
@@ -52,8 +52,8 @@ def plot_degree_distribution(G: nx.graph, Gpre= None, fixMin= 0, fixMax= 30, ax=
         ax.hist(degrees, bins=np.arange(refMin, refMax)-0.5, density=True, color="royalblue", alpha=0.5, label="True Graph")
     #ax.set_title(f"Degree distribution", fontsize=fontZise)
     #ax.legend(prop = { "size": fontZise }, loc ="upper right")
-    ax.set_xlabel("Degree", fontsize=fontZise)
-    ax.set_ylabel("Probability", fontsize=fontZise)
+    # ax.set_xlabel("Degree", fontsize=fontZise)
+    # ax.set_ylabel("Probability", fontsize=fontZise)
     ax.tick_params(axis='both', labelsize=fontZise)
     ax.grid(True)
 
@@ -63,8 +63,8 @@ def read_posDic_from_json(filename= ""):
     posDic={int(i):[StatesCoor[i][1][1], StatesCoor[i][1][0]] for i in StatesCoor }
     return posDic
 
-def plot_spring_layout(G= None, GPre= None, pos= None, ax= None, label= False, stringT= ""):
-    fontZise= 25
+def plot_spring_layout(G= None, GPre= None, pos= None, ax= None, label= False, label_edge= False, node_pair2id= [], stringT= ""):
+    fontZise= 44
     if ax is None:
         fig, ax = plt.subplots(figsize=(8, 6))
     # Calculate node positions using spring layout
@@ -76,13 +76,22 @@ def plot_spring_layout(G= None, GPre= None, pos= None, ax= None, label= False, s
         pos = nx.spring_layout(G, k= 2/n, iterations= 100)
     if G is not None:
         edgesList= nx.to_edgelist(G)
-        for edge in edgesList:
+        for j, edge in enumerate(edgesList):
             node0= pos[edge[0]]
             node1= pos[edge[1]]
             ax.plot([node0[0], node1[0]], 
                     [node0[1], node1[1]], marker = '', color="royalblue", alpha=0.5)
+            if label_edge:
+                if edge[2].get("index", 0):
+                    name= edge[2]["index"]
+                else:
+                    name= j
+                if len(node_pair2id):
+                    name= node_pair2id[(edge[0], edge[1])]
+                ax.text((node0[0]+node1[0])/2, (node0[1]+node1[1])/2, f"{name}", color="royalblue")
         ax.plot([node0[0], node1[0]], 
                     [node0[1], node1[1]], marker = '', color="royalblue", alpha=0.5, label= "True links")  
+
     if GPre is not None:
         edgesList= nx.to_edgelist(GPre)
         for edge in edgesList:
@@ -95,12 +104,66 @@ def plot_spring_layout(G= None, GPre= None, pos= None, ax= None, label= False, s
     for i in pos:
         ax.plot([pos[i][0]], [pos[i][1]], marker='.', color="black", alpha=1 )
         if label:
-            ax.text(pos[i][0], pos[i][1], f"{i}")
+            ax.text(pos[i][0], pos[i][1], f"{i+1}")
     #ax.legend(prop = { "size": fontZise }, loc ="upper right")
     ax.set_title(stringT, fontsize=fontZise)
     ax.axis('off')
+
+def plot_spring_layout_substation(G, GPre, splitNodes, pos= None, ax= None, label_node= False, label_edge= False, node_pair2id= None, stringT= "", seed= 0):
+    fontsize= 18
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 6))
+    # Calculate node positions using spring layout
+    n= nx.number_of_nodes(G)
+    edgesList= nx.to_edgelist(GPre)
+    if pos is None:
+        pos = nx.spring_layout(G, k= 2/n, iterations= 200, seed= seed)
+    posCp= pos.copy()
+    for oNode in splitNodes.keys():
+        oPos= posCp[oNode]
+        for newNode in splitNodes[oNode]:
+            nodeTmp= newNode[0]
+            linksTmp= newNode[1]
+            dirTmp= 0
+            for linkTmp in linksTmp:
+                dirTmp+= posCp[linkTmp[0]]+posCp[linkTmp[1]]-2*oPos
+            dirTmp= dirTmp/np.linalg.norm(dirTmp)
+            #rotate a random degree
+            theta = np.radians(60)
+            c, s = np.cos(theta), np.sin(theta)
+            R = np.array(((c, -s), (s, c)))
+            dirTmp= R.dot(dirTmp)
+            pos[nodeTmp]= oPos+dirTmp*0.05
+    for j, edge in enumerate(edgesList):
+        node0= pos[edge[0]]
+        node1= pos[edge[1]]
+        ax.plot([node0[0], node1[0]], 
+                [node0[1], node1[1]], marker = '', color="royalblue", alpha= 1)
+        if label_edge:
+            name= j
+            if node_pair2id is not None:
+                name= node_pair2id[(edge[0], edge[1])]
+            ax.text((node0[0]+node1[0])/2, (node0[1]+node1[1])/2, f"{name+1}", color="royalblue", alpha=0.9, fontsize= fontsize)
+    ax.plot([node0[0], node1[0]], 
+                [node0[1], node1[1]], marker = '', color="royalblue", alpha=0.5, label= "True links")  
+
+    for i in pos:
+        ax.plot([pos[i][0]], [pos[i][1]], marker='.', color="black", alpha=0.5 )
+        if label_node:
+            ax.text(pos[i][0], pos[i][1], f"{i+1}", fontsize= fontsize)
+    for oNode in splitNodes.keys():
+        oPos= posCp[oNode]
+        newNode0= splitNodes[oNode][0][0]
+        newNode1= splitNodes[oNode][1][0]
+        if nx.has_path(GPre, newNode0, newNode1):
+            ax.plot([oPos[0]], [oPos[1]], marker='x', color="red", alpha=1, markersize= 15)
+        else:
+            ax.plot([oPos[0]], [oPos[1]], marker='x', color="#0FE724", alpha=1, markersize= 15)
+    ax.set_title(stringT, fontsize=fontsize)
+    ax.axis('off')
+
 def plot_spring_and_degree(G: nx.graph, GPre= None, pos= None, fixMin= 0, fixMax= 30, stringT=""):
-    f, (ax1, ax2) = plt.subplots(1, 2, sharey= False, figsize=(16, 6))
+    _, (ax1, ax2) = plt.subplots(1, 2, sharey= False, figsize=(14, 6))
     plot_degree_distribution(G, GPre, fixMin, fixMax, ax2)
     plot_spring_layout(G, GPre, pos, ax1, label= False, stringT= stringT)
     plt.tight_layout(pad=0.2, w_pad=0.2, h_pad=0.2)
