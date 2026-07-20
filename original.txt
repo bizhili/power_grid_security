@@ -1,0 +1,8 @@
+1. Maybe highlight your contribution and innovation in Section 1.
+2. It seems lack a clear definition or illustration of the geometry of the measurement manifold throughout the paper.
+3. For equation (7), how to determine the pseudo-null space H? Like how close to zero? What is the criterion?
+4. For the case study, what if there is a topology change on the system?
+5. Can you talk about the computational efficiency for each case?
+6. For the reference [14, 27, 30, 31], please check their information and style.
+7. Please improve the visibility of Figure 5, 7, and 8.
+8. Some minor typo and grammar issue.

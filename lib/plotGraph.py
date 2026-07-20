@@ -105,7 +105,7 @@ def plot_spring_layout(G= None, GPre= None, pos= None, ax= None, label= False, l
         ax.plot([pos[i][0]], [pos[i][1]], marker='.', color="black", alpha=1 )
         if label:
             ax.text(pos[i][0], pos[i][1], f"{i+1}")
-    #ax.legend(prop = { "size": fontZise }, loc ="upper right")
+    # ax.legend(prop = { "size": fontZise }, loc ="upper right")
     ax.set_title(stringT, fontsize=fontZise)
     ax.axis('off')
 

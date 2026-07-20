@@ -23,13 +23,21 @@ def read_excel_power(file_path= "", id1= 0, id2= 1, normalize= False):
 
 def read_mat_power(file_path= "", normalize= True):
     mat_data = loadmat(file_path)
+    # print(mat_data.keys())
     H = mat_data['Bf']
-    pfData = mat_data['measureBranchActivePower']
-    qfData = mat_data.get('measureBranchReactivePower', None)
-    phaseData = mat_data['stateBusVoltageAngle']
+    pfData = mat_data.get('measureBranchActivePower', 0)
+    qfData = mat_data.get('measureBranchReactivePower', 0)
+
+    # pfBusData = mat_data.get('measureBusActivePower', 0)
+    # qfBusData = mat_data.get('measureBusReactivePower', 0)
+
+    resistance= mat_data.get('resistence', 0)
+    reactance= mat_data.get('reactance', 0)
+    phaseData = mat_data.get('stateBusVoltageAngle', 0)
+    voltageData= mat_data.get('stateBusVoltageMagni', 0)
     if normalize:
         pfData= pfData/np.linalg.norm(pfData, 1, axis=1, keepdims= True)
         pfData= pfData-np.mean(pfData, 0, keepdims= True)
     A=np.array(H>0, dtype= np.float32)-np.array(H<0, dtype= np.float32)
-    return pfData, phaseData, H, A, qfData
+    return pfData/100, phaseData/180*np.pi, H, A, qfData/100, resistance, voltageData, reactance
 

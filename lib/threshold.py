@@ -4,13 +4,12 @@ import numpy as np
 
 def li_threshold(residual, groundTruth):
     thresholdLi= threshold_li(residual)
-    print(thresholdLi)
     predict= (residual>thresholdLi)
     cross= groundTruth*predict
-    precision= cross.sum()/(predict.sum()+1e-5)
-    recall= cross.sum()/(groundTruth.sum()+1e-5)
+    precision= cross.sum()/(predict.sum()+1e-14)
+    recall= cross.sum()/(groundTruth.sum()+1e-14)
     cross= (groundTruth)*predict
-    falsePositive= cross.sum()/((groundTruth).sum()+1e-5)
+    falsePositive= cross.sum()/((groundTruth).sum()+1e-14)
     return precision, recall, falsePositive, thresholdLi
 
 def chi_2_threshold(residual, groundTruth, level= 0.95, df= 1, sigma= 1e-3):

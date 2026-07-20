@@ -1,7 +1,7 @@
 import copy
 import numpy as np
 
-def paras_learning(biconnected_components, wholeCov):
+def paras_learning(biconnected_components, wholeCov, originalData):
     m= wholeCov.shape[1]
     predParas= np.ones((m, 1))
     biconnected_components_dictCp= copy.deepcopy(biconnected_components) 
@@ -13,12 +13,17 @@ def paras_learning(biconnected_components, wholeCov):
             continue
         line_parameters= []
         for item in sub_cycles_with_edges:
-
+            # submeasurement= originalData[:, item]
             covM= wholeCov[:, list(item)][list(item), :]
-            Val, Vt = np.linalg.eig(covM)
-            Val= np.abs(np.real(Val))
-            minIdx= np.argmin(Val)
-            UT= Vt[:, minIdx:minIdx+1]
+            U, S, V= np.linalg.svd(covM)
+            # print(S[-1])
+            UT= V[-1, :][:, None]
+
+            # Val, Vt = np.linalg.eig(covM)
+            # Val= np.abs(np.real(Val))
+            # minIdx= np.argmin(Val)
+            # UT= Vt[:, minIdx:minIdx+1]
+
             line_parameter= UT[:, -1]
             cVector= np.zeros(m)
             cVector[list(item)]= UT[:, -1]

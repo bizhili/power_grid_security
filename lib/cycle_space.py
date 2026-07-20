@@ -32,19 +32,21 @@ def get_cycle_and_tree(spaningTreeList, leftLinksSet, wholeRight, m):
     leftLinksList= list(leftLinksSet)
     treeLinks= set([i for i in range(m)])# links in a tree structure, not belong to any cycle
     Sss= []
+    logSss= []
     for i, link in  enumerate(leftLinksList):
         tmpLinks= spaningTreeList+[link]
         covM= wholeRight[tmpLinks, :][:, tmpLinks]
         nullMagni= linksDependent(covM)
         rankedIdx= np.argsort(nullMagni)
         convRankedIdx= [tmpLinks[i] for i in reversed(rankedIdx)]
-        Ss= np.zeros(len(convRankedIdx)-1)
-        for j in range(1, len(convRankedIdx)):
+        Ss= np.zeros(len(convRankedIdx))# used to be -1
+        for j in range(1, len(convRankedIdx)+1): # used to be +0
             squareRight= wholeRight[:, convRankedIdx[:j]][convRankedIdx[:j], :]# right covariance matrix
             singularVs = np.sqrt(np.abs(np.linalg.eigvals(squareRight)))# transform eigenvalue to sigular value 
             Ss[j-1]= np.min(singularVs)
         Sss.append(Ss)
         logSs= np.log(Ss+1e-9)
+        logSss.append(logSs)
         critia= (logSs[:-2]+logSs[2:]-2*logSs[1:-1])/(Ss[1:-1]+1e-9)
         maxId= np.argmax(critia)+2
         cycleTmp= convRankedIdx[:maxId]
@@ -104,6 +106,7 @@ def get_cycle_space(newDataNp, rankH, m, cycleList= None):
         spaningTreeList, leftLinksSet = get_spanning_tree(newDataNp, rankH, m)
         cycleList, _ = get_cycle_and_tree(spaningTreeList, leftLinksSet, wholeRight, m)
     biComponents= find_components(cycleList.copy())
-    predParas, cSpace= parasLearn.paras_learning(biComponents, wholeRight)
+    predParas, cSpace= parasLearn.paras_learning(biComponents, wholeRight, newDataNp)
+
     # print(cycleList)
     return predParas, cSpace, wholeRight
