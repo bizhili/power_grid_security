@@ -2,6 +2,14 @@ import numpy as np
 from collections import deque
 from typing import List, Tuple
 
+
+def calculate_snr(signal: np.ndarray, noise: np.ndarray) -> float:
+    """Return the signal-to-noise power ratio in decibels."""
+    signal_power = np.mean(np.abs(signal) ** 2)
+    noise_power = np.mean(np.abs(noise) ** 2)
+    return np.inf if noise_power == 0 else 10 * np.log10(signal_power / noise_power)
+
+
 def bfs_spanning_tree_from_incidence(
     A: np.ndarray,
     root: int = 0,
