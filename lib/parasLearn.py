@@ -32,7 +32,7 @@ def paras_learning(biconnected_components, wholeCov):
             # common_index= common_indices[0]
             ratio= 0
             for common_index in common_indices:
-                ratio+= line_parameters[0][common_index[0]]/line_parameters[thisTreeI][common_index[1]]
+                ratio+= line_parameters[0][common_index[0]]/(line_parameters[thisTreeI][common_index[1]]+ 0)
             ratio= ratio/len(common_indices)
             line_parameters[thisTreeI]= line_parameters[thisTreeI]*ratio
             delIndex= {delIndex[1] for delIndex in common_indices}
