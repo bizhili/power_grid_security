@@ -18,8 +18,37 @@ def linksDependent(covM):
     nullMagni= np.linalg.norm(nullSpace, axis= 0)
     return nullMagni
 
-def get_spanning_tree(dataZ, rankH, m):
-    spaningTreeList= select_rows_rrqr(dataZ, rank= rankH)
+def _rms_normalize(dataZ):
+    """Equalize relative branch noise without discarding the DC mean."""
+    dataZ = np.asarray(dataZ, dtype=float)
+    if dataZ.ndim != 2 or not np.all(np.isfinite(dataZ)):
+        raise ValueError("dataZ must be a finite two-dimensional matrix")
+    scale = np.sqrt(np.mean(dataZ**2, axis=0))
+    if not len(scale) or np.max(scale) == 0 or np.any(
+        scale <= np.max(scale) * np.finfo(float).eps * max(dataZ.shape)
+    ):
+        raise ValueError("Every measured branch must have nonzero RMS")
+    return dataZ / scale, scale
+
+
+def get_spanning_tree(dataZ, rankH, m, method="raw"):
+    """Select measurement coordinates using raw or rank-truncated RRQR."""
+    dataZ = np.asarray(dataZ)
+    if dataZ.ndim != 2 or dataZ.shape[1] != m or not 1 <= rankH <= m:
+        raise ValueError("Invalid dataZ, rankH, or m")
+    method = method.lower()
+    if method == "raw":
+        spaningTreeList = select_rows_rrqr(dataZ, rank=rankH)
+    elif method in {"robust", "svd"}:
+        normalized, _ = _rms_normalize(dataZ)
+        if rankH > min(normalized.shape):
+            raise ValueError("Not enough measurements for the requested rank")
+        signalSpace = np.linalg.svd(
+            normalized, full_matrices=False
+        )[2][:rankH].T
+        spaningTreeList = select_rows_rrqr(signalSpace.T, rank=rankH)
+    else:
+        raise ValueError("method must be 'raw' or 'robust'")
     leftLinksSet= set([i for i in range(m)])-set(spaningTreeList)
     return spaningTreeList, leftLinksSet
 
@@ -146,8 +175,74 @@ def get_residual_criterion_cycle_and_tree(dataZ, n, spaningTreeList):
     return cycleList, treeLinks, critias
 
 
+def get_adaptive_cycle_and_tree(
+    dataZ, n, spaningTreeList, supportThreshold=1e-2
+):
+    """Recover BIC cycles, prune weak fitted links, and refit downstream."""
+    from sklearn.linear_model import LassoLarsIC
+
+    dataZ = np.asarray(dataZ, dtype=float)
+    tree = sorted(spaningTreeList)
+    m = dataZ.shape[1] if dataZ.ndim == 2 else 0
+    if (
+        dataZ.ndim != 2
+        or len(tree) != n - 1
+        or len(tree) != len(set(tree))
+        or dataZ.shape[0] <= len(tree) + 1
+        or any(i < 0 or i >= m for i in tree)
+    ):
+        raise ValueError("Invalid dataZ or spaningTreeList")
+
+    normalized, _ = _rms_normalize(dataZ)
+    predictors = normalized[:, tree]
+    cycles, critias = [], []
+    for chord in sorted(set(range(m)) - set(tree)):
+        model = LassoLarsIC(
+            criterion="bic", fit_intercept=False
+        ).fit(predictors, normalized[:, chord])
+        selected = np.flatnonzero(model.coef_)
+        if len(selected) < 2:
+            coefficients = np.linalg.lstsq(
+                predictors, normalized[:, chord], rcond=None
+            )[0]
+            selected = np.argsort(
+                -np.abs(coefficients), kind="stable"
+            )[:2]
+
+        treeEdges = [tree[i] for i in selected]
+        full = [chord] + treeEdges
+        weights = np.linalg.svd(
+            normalized[:, full], full_matrices=False
+        )[2][-1, 1:]
+        order = np.lexsort((np.asarray(treeEdges), -np.abs(weights)))
+
+        candidates = []
+        for count in range(2, len(treeEdges) + 1):
+            links = [chord] + [treeEdges[i] for i in order[:count]]
+            residual = np.linalg.svd(
+                normalized[:, links], compute_uv=False
+            )[-1] ** 2
+            bic = (
+                len(dataZ) * np.log(
+                    max(residual / len(dataZ), np.finfo(float).tiny)
+                )
+                + len(links) * np.log(len(dataZ))
+            )
+            candidates.append((bic, tuple(sorted(links)), links))
+
+        _, _, best = min(candidates, key=lambda item: item[:2])
+        cycles.append(set(best))
+        scores = np.asarray([item[0] for item in candidates])
+        critias.append(scores - scores.min() + 1.0)
+
+    if supportThreshold is not None:
+        cycles = refine_cycle_list(dataZ, cycles, supportThreshold)
+    cycleEdges = set().union(*cycles) if cycles else set()
+    return cycles, set(range(m)) - cycleEdges, critias
+
+
 def get_cycle_basis(dataZ, n, spaningTreeList, method="new"):
-    """Select the old or new fundamental-cycle recovery method."""
+    """Select a fundamental-cycle recovery method."""
     method = method.lower()
     if method == "old":
         m = dataZ.shape[1]
@@ -156,11 +251,33 @@ def get_cycle_basis(dataZ, n, spaningTreeList, method="new"):
         return get_cycle_and_tree(
             spaningTreeList, leftLinksSet, wholeRight, m
         )
-    if method == "new":
+    if method in {"new", "adaptive", "bic"}:
+        return get_adaptive_cycle_and_tree(
+            dataZ, n, spaningTreeList
+        )
+    if method == "residual":
         return get_residual_criterion_cycle_and_tree(
             dataZ, n, spaningTreeList
         )
-    raise ValueError("method must be 'old' or 'new'")
+    raise ValueError(
+        "method must be 'old', 'new'/'bic', or 'residual'"
+    )
+
+
+def recover_cycle_list(
+    dataZ, n, treeMethod="robust", cycleMethod="new"
+):
+    """Recover a tree and cycle list from branch measurements and n only."""
+    dataZ = np.asarray(dataZ)
+    if dataZ.ndim != 2 or n < 2:
+        raise ValueError("Invalid dataZ or n")
+    tree, _ = get_spanning_tree(
+        dataZ, n - 1, dataZ.shape[1], method=treeMethod
+    )
+    cycles, treeLinks, critias = get_cycle_basis(
+        dataZ, n, tree, method=cycleMethod
+    )
+    return tree, cycles, treeLinks, critias
 
 
 def rank_gf2(matrix):
@@ -316,6 +433,56 @@ def check_tree_links(A, rankH, treeLinks, verbose=True):
     return correct
 
 
+def fit_cycle_constraints(dataZ, cycleList):
+    """Fit normalized TLS weights and map them to raw branch coordinates."""
+    normalized, scale = _rms_normalize(dataZ)
+    m = normalized.shape[1]
+    constraints = []
+    for cycle in cycleList:
+        links = sorted(cycle)
+        if (
+            len(links) < 2
+            or len(links) != len(set(links))
+            or any(
+                not isinstance(i, (int, np.integer)) or i < 0 or i >= m
+                for i in links
+            )
+            or len(links) > len(normalized)
+        ):
+            raise ValueError("cycleList contains an invalid cycle")
+        weights = np.linalg.svd(
+            normalized[:, links], full_matrices=False
+        )[2][-1]
+        vector = np.zeros(m)
+        vector[links] = weights / scale[links]
+        vector /= np.linalg.norm(vector)
+        if vector[links[0]] < 0:
+            vector *= -1
+        constraints.append(vector)
+    return (
+        np.stack(constraints, axis=1)
+        if constraints else np.empty((m, 0))
+    )
+
+
+def refine_cycle_list(dataZ, cycleList, threshold=1e-2):
+    """Threshold fitted cycle weights, then validate the refitted basis."""
+    if (
+        not isinstance(threshold, (int, float, np.integer, np.floating))
+        or not np.isfinite(threshold) or threshold <= 0
+    ):
+        raise ValueError("threshold must be positive and finite")
+    initial = fit_cycle_constraints(dataZ, cycleList)
+    refined = [
+        set(np.flatnonzero(np.abs(initial[:, cycle]) > threshold))
+        for cycle in range(initial.shape[1])
+    ]
+    final = fit_cycle_constraints(dataZ, refined)
+    if refined and np.linalg.matrix_rank(final) != len(refined):
+        raise ValueError("Refined cycle constraints are rank deficient")
+    return refined
+
+
 def weighted_cycle_accuracies(H, dataZ, cycleList):
     """Return each learned cycle vector's squared accuracy in null(H.T)."""
     H, dataZ = np.asarray(H), np.asarray(dataZ)
@@ -323,21 +490,9 @@ def weighted_cycle_accuracies(H, dataZ, cycleList):
         raise ValueError("H and dataZ have incompatible shapes")
     rankH = np.linalg.matrix_rank(H)
     trueSpace = np.linalg.svd(H, full_matrices=True)[0][:, rankH:]
-    covariance = dataZ.T @ dataZ
-    accuracies = []
-    for cycle in cycleList:
-        links = list(cycle)
-        if not links or any(i < 0 or i >= H.shape[0] for i in links):
-            accuracies.append(np.nan)
-            continue
-        weights = np.linalg.svd(
-            covariance[np.ix_(links, links)], full_matrices=False
-        )[2][-1]
-        vector = np.zeros(H.shape[0])
-        vector[links] = weights
-        accuracy = np.linalg.norm(trueSpace.T @ vector) ** 2 / np.dot(vector, vector)
-        accuracies.append(np.clip(accuracy, 0.0, 1.0))
-    return np.asarray(accuracies)
+    constraints = fit_cycle_constraints(dataZ, cycleList)
+    accuracies = np.sum((trueSpace.T @ constraints) ** 2, axis=0)
+    return np.clip(accuracies, 0.0, 1.0)
 
 
 def check_cycle_list(A, cycleList, critias, verbose=True, H=None, dataZ=None):
@@ -382,9 +537,11 @@ def check_cycle_list(A, cycleList, critias, verbose=True, H=None, dataZ=None):
                 )
         for cycle_id, links in incorrect:
             print(f"incorrect cycleList[{cycle_id}] links:", links)
-            plt.plot(critias[cycle_id], label= f"{cycle_id}")
-        plt.legend()
-        plt.yscale("log")
+            # plt.plot(critias[cycle_id], label= f"{cycle_id}")
+        if incorrect:
+            # plt.legend()
+            # plt.yscale("log")
+            pass
     return not incorrect
 
 
@@ -403,9 +560,11 @@ def statistical_cycle_test(
 
     for _ in range(numTests):
         noisyTrain = trainData + np.random.randn(*trainData.shape) * noiseStd
-        spaningTreeList, _ = get_spanning_tree(noisyTrain, rankH, m)
+        spaningTreeList, _ = get_spanning_tree(
+            noisyTrain, rankH, m, method="robust"
+        )
         cycleList, treeLinks, critias = (
-            get_residual_criterion_cycle_and_tree(
+            get_adaptive_cycle_and_tree(
                 noisyTrain, rankH + 1, spaningTreeList
             )
         )
@@ -426,7 +585,7 @@ def statistical_cycle_test(
 def compare_cycle_recovery_statistics(
     dataZ, A, rankH, numTrain, noiseStd, numTests=100
 ):
-    """Compare old and new cycle recovery using identical noisy trees."""
+    """Compare the complete old and robust pipelines on identical noise."""
     if numTests < 1:
         raise ValueError("numTests must be positive")
 
@@ -434,39 +593,44 @@ def compare_cycle_recovery_statistics(
     trainData = dataZ[:numTrain, :]
     topologyRankCorrect = np.linalg.matrix_rank(A) == rankH
     expectedTreeLinks = get_bridge_links(A)
-    spanningSuccess = 0
     success = {
-        "Old curvature heuristic": {"treeLinks": 0, "cycleList": 0},
-        "New residual-curvature criterion": {"treeLinks": 0, "cycleList": 0},
+        "Old": {"spaningTreeList": 0, "treeLinks": 0, "cycleList": 0},
+        "New robust": {
+            "spaningTreeList": 0, "treeLinks": 0, "cycleList": 0
+        },
     }
 
     for _ in range(numTests):
         noisyTrain = trainData + np.random.randn(*trainData.shape) * noiseStd
         wholeRight = noisyTrain.T.dot(noisyTrain)
-        spaningTreeList, leftLinksSet = get_spanning_tree(
-            noisyTrain, rankH, m
+        oldTree, leftLinksSet = get_spanning_tree(
+            noisyTrain, rankH, m, method="raw"
         )
         oldCycles, oldTreeLinks, oldCritias = get_cycle_and_tree(
-            spaningTreeList, leftLinksSet, wholeRight, m
+            oldTree, leftLinksSet, wholeRight, m
+        )
+        newTree, _ = get_spanning_tree(
+            noisyTrain, rankH, m, method="robust"
         )
         newCycles, newTreeLinks, newCritias = (
-            get_residual_criterion_cycle_and_tree(
-                noisyTrain, rankH + 1, spaningTreeList
+            get_adaptive_cycle_and_tree(
+                noisyTrain, rankH + 1, newTree
             )
         )
 
-        spanningSuccess += check_spanning_tree(
-            A, spaningTreeList, rankH, verbose=False
-        )
-        for method, cycleList, treeLinks, critias in (
-            ("Old curvature heuristic", oldCycles, oldTreeLinks, oldCritias),
+        for method, tree, cycleList, treeLinks, critias in (
+            ("Old", oldTree, oldCycles, oldTreeLinks, oldCritias),
             (
-                "New residual-curvature criterion",
+                "New robust",
+                newTree,
                 newCycles,
                 newTreeLinks,
                 newCritias,
             ),
         ):
+            success[method]["spaningTreeList"] += check_spanning_tree(
+                A, tree, rankH, verbose=False
+            )
             success[method]["treeLinks"] += (
                 topologyRankCorrect and set(treeLinks) == expectedTreeLinks
             )
@@ -474,12 +638,7 @@ def compare_cycle_recovery_statistics(
                 A, cycleList, critias, verbose=False
             )
 
-    spanningRate = spanningSuccess / numTests
-    print(
-        f"spaningTreeList success rate: "
-        f"{spanningSuccess}/{numTests} ({100 * spanningRate:.1f}%)"
-    )
-    rates = {"spaningTreeList": spanningRate}
+    rates = {}
     for method, counts in success.items():
         print(f"{method}:")
         rates[method] = {
@@ -491,6 +650,84 @@ def compare_cycle_recovery_statistics(
                 f"{count}/{numTests} ({100 * rates[method][name]:.1f}%)"
             )
     return rates
+
+
+def compare_ranked_subspace_statistics(
+    dataZ, H, noiseRatio=0.1, sampleMultiples=(2, 3, 4),
+    numTests=100, seed=0
+):
+    """Evaluate recovery only; H is used solely for accuracy scoring."""
+    dataZ, H = np.asarray(dataZ, dtype=float), np.asarray(H, dtype=float)
+    m, n = H.shape
+    rankH = np.linalg.matrix_rank(H)
+    if (
+        dataZ.ndim != 2 or dataZ.shape[1] != m or rankH != n - 1
+        or noiseRatio <= 0 or numTests < 1
+    ):
+        raise ValueError("Invalid dataZ, H, noiseRatio, or numTests")
+    trueSpace = np.linalg.svd(H, full_matrices=False)[0][:, :rankH]
+
+    def accuracy(basis):
+        basis = np.linalg.svd(
+            basis, full_matrices=False
+        )[0][:, :rankH]
+        return np.linalg.norm(trueSpace.T @ basis, "fro") ** 2 / rankH
+
+    results = {}
+    for multiple in sampleMultiples:
+        count = int(multiple * m)
+        if multiple != int(multiple) or count > len(dataZ):
+            raise ValueError("Invalid sampleMultiples")
+        clean = dataZ[:count]
+        rms = np.sqrt(np.mean(clean**2, axis=0))
+        noiseStd = noiseRatio * np.maximum(
+            rms, np.max(rms) * np.finfo(float).eps
+        )
+        cycleScores, pcaScores = [], []
+        rankSuccess = 0
+        for test in range(numTests):
+            rng = np.random.default_rng(seed + test)
+            noisy = clean + rng.normal(scale=noiseStd, size=clean.shape)
+            tree, _ = get_spanning_tree(
+                noisy, rankH, m, method="robust"
+            )
+            cycles, _, _ = get_cycle_basis(
+                noisy, n, tree, method="new"
+            )
+            constraints = fit_cycle_constraints(noisy, cycles)
+            constraintRank = np.linalg.matrix_rank(constraints)
+            rankSuccess += constraintRank == m - rankH
+            cycleBasis = np.linalg.svd(
+                constraints.T, full_matrices=True
+            )[2][constraintRank:].T
+            cycleScores.append(accuracy(cycleBasis))
+
+            scale = np.std(noisy, axis=0, ddof=1)
+            normalized = (noisy - noisy.mean(axis=0)) / scale
+            pcaBasis = scale[:, None] * np.linalg.svd(
+                normalized.T, full_matrices=False
+            )[0][:, :rankH]
+            pcaScores.append(accuracy(pcaBasis))
+
+        cycleScores, pcaScores = map(
+            np.asarray, (cycleScores, pcaScores)
+        )
+        margins = cycleScores - pcaScores
+        results[int(multiple)] = {
+            "cycleList": cycleScores,
+            "PCA": pcaScores,
+            "wins": int(np.sum(margins > 0)),
+            "minMargin": float(np.min(margins)),
+            "rankSuccess": int(rankSuccess),
+        }
+        print(
+            f"{int(multiple)}m: cycleList={100 * cycleScores.mean():.4f}%, "
+            f"PCA={100 * pcaScores.mean():.4f}%, H known=100.0000%, "
+            f"cycleList>PCA {np.sum(margins > 0)}/{numTests}, "
+            f"min margin={100 * np.min(margins):.4f} pp, "
+            f"rank {rankSuccess}/{numTests}"
+        )
+    return results
 
 
 def find_components(sets):
@@ -531,12 +768,15 @@ def find_components(sets):
 def get_cycle_space(newDataNp, rankH, m, cycleList= None):
     wholeRight= newDataNp.T.dot(newDataNp)
     if cycleList== None:
-        spaningTreeList, leftLinksSet = get_spanning_tree(newDataNp, rankH, m)
-        cycleList, _, _ = get_cycle_and_tree(
-            spaningTreeList, leftLinksSet, wholeRight, m
+        spaningTreeList, _ = get_spanning_tree(
+            newDataNp, rankH, m, method="robust"
+        )
+        cycleList, _, _ = get_adaptive_cycle_and_tree(
+            newDataNp, rankH + 1, spaningTreeList
         )
     biComponents= find_components(cycleList.copy())
-    predParas, cSpace= parasLearn.paras_learning(biComponents, wholeRight)
+    predParas, _= parasLearn.paras_learning(biComponents, wholeRight)
+    cSpace= fit_cycle_constraints(newDataNp, cycleList)
 
     # print(cycleList)
     return predParas, cSpace, wholeRight
